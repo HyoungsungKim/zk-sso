@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <title>VC-NFT zk-SSO PoC (Sepolia)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Ethers.js v6 -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.10.0/dist/ethers.umd.min.js"></script>
+    <!-- (선택) 브라우저 증명 생성을 쓰려면 아래 두 줄 활성화하고 ./zk 폴더에 파일 배치 -->
+    <script src="../zk/snark.min.js"></script>
+    <script src="../zk/witness_calculator.js"></script>
+    <style>
+        :root { --bg:#0f1222; --panel:#171a2b; --ink:#e8ebff; --muted:#aeb4d9; --ok:#67e8a5; --bad:#ff7b7b; --acc:#7c9bff; }
+        html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui}
+        header{padding:22px 18px;border-bottom:1px solid #232749}
+        h1{margin:0 0 6px 0;font-size:20px}
+        small{color:var(--muted)}
+        main{max-width:980px;margin:20px auto;padding:0 18px 60px}
+        section{background:var(--panel);border:1px solid #21264a;border-radius:14px;margin:16px 0;padding:16px}
+        h2{margin:0 0 12px 0;font-size:17px}
+        .row{display:grid;grid-template-columns:180px 1fr;gap:10px;margin:10px 0}
+        input,select,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2f55;background:#10132a;color:var(--ink);font-size:14px}
+        .btn{display:inline-flex;align-items:center;gap:8px;background:#1c2250;color:#fff;border:1px solid #2f3a7a;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer}
+        .btn:disabled{opacity:.45;cursor:not-allowed}
+        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+        .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+        .hint{color:var(--muted);font-size:13px;margin-top:6px}
+        .hr{height:1px;background:#24284b;margin:12px 0}
+        .ok{color:var(--ok)} .bad{color:var(--bad)}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>VC-NFT zk-SSO PoC <span class="mono">Sepolia</span></h1>
+        <small>ERC-721(SBT 스타일) + ZK 검증 한 번 호출로 로그인/게이트</small>
+    </header>
+    <main>
+        
+        <!-- 0) CONFIG & WALLET -->
+        <section>
+            <h2>① 환경 설정 & 지갑</h2>
+            <div class="row"><div>체인</div><div id="cfgChain" class="mono">11155111 (Sepolia)</div></div>
+            <div class="row"><div>IdentityNFT</div><div class="mono" id="cfgNFT">0xYour_NFT</div></div>
+            <div class="row"><div>PolicyVerifierA</div><div class="mono" id="cfgPV">0xYour_PV</div></div>
+            <div class="hr"></div>
+            <div class="row"><div>지갑 상태</div><div id="walletStatus" class="bad">미연결</div></div>
+            <div class="row"><div>계정</div><div class="mono" id="walletAddr">-</div></div>
+            <button class="btn" id="btnConnect">🦊 MetaMask 연결</button>
+            <div class="hint">* Sepolia에 연결되어 있어야 합니다. 수수료용 ETH 필요.</div>
+        </section>
+        
+        <!-- 1) MINT -->
+        <section>
+            <h2>② ID-NFT 민팅 (오픈 모드)</h2>
+            <div class="row"><div>수혜자 주소</div><div><input id="mintTo" placeholder="0x... (미입력 시 본인)"/></div></div>
+            <div class="row"><div>만료(일)</div><div><input id="mintDays" type="number" value="30" min="1"/></div></div>
+            <div class="row"><div>속성루트</div><div><input id="mintRoot" placeholder="0x00.. (PoC는 0x00 권장)"/></div></div>
+            <button class="btn" id="btnMint">🪪 민팅</button>
+            <div id="mintLog" class="mono hint"></div>
+        </section>
+        
+        <!-- 2) POLICY (서비스가 요구하는 공개 정책) -->
+        <section>
+            <h2>③ 서비스 정책(공개 입력) & 내 신원(비공개 입력)</h2>
+            
+            <div class="grid2">
+                <div>
+                    <h3>서비스 정책 (회로 public)</h3>
+                    <div class="row"><div>나이 검사</div>
+                    <div>
+                        <select id="ageFlag">
+                            <option value="1">활성(검사)</option>
+                            <option value="0">비활성(무시)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row"><div>요구 나이</div><div><input id="reqAge" type="number" value="19" min="0" /></div></div>
+                
+                <div class="row"><div>성별 검사</div>
+                <div>
+                    <select id="genderFlag">
+                        <option value="1">활성</option>
+                        <option value="0">비활성</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row"><div>요구 성별</div>
+            <div>
+                <select id="reqGender">
+                    <option value="0">남성(0)</option>
+                    <option value="1">여성(1)</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="row"><div>국적 검사</div>
+        <div>
+            <select id="nationFlag">
+                <option value="1">활성</option>
+                <option value="0">비활성</option>
+            </select>
+        </div>
+    </div>
+    <div class="row"><div>허용 국적 (최대 5)</div>
+    <div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px">
+            <select class="nationOpt">
+                <option value="410">KOR(410)</option><option value="840">USA(840)</option><option value="392">JPN(392)</option><option value="826">GBR(826)</option><option value="0">—</option>
+            </select>
+            <select class="nationOpt">
+                <option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option>
+            </select>
+            <select class="nationOpt">
+                <option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option>
+            </select>
+            <select class="nationOpt">
+                <option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option>
+            </select>
+            <select class="nationOpt">
+                <option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option>
+            </select>
+        </div>
+        <div class="hint">* 필요 개수만 선택하고 나머지는 “—(0)”로 두세요.</div>
+    </div>
+</div>
+
+<div class="row"><div>정책 문자열</div><div><input id="policyStr" value="age>=19&KRorUS"/></div></div>
+</div>
+
+<div>
+    <h3>내 신원 (회로 private)</h3>
+    <div class="row"><div>나이</div><div><input id="pvAge" type="number" value="23" min="0"/></div></div>
+    <div class="row"><div>성별</div>
+    <div>
+        <select id="pvGender">
+            <option value="0">남성(0)</option>
+            <option value="1">여성(1)</option>
+        </select>
+    </div>
+</div>
+<div class="row"><div>국적 코드</div>
+<div>
+    <select id="pvNation">
+        <option value="410">KOR(410)</option>
+        <option value="840">USA(840)</option>
+        <option value="392">JPN(392)</option>
+        <option value="826">GBR(826)</option>
+    </select>
+</div>
+</div>
+
+<div class="hr"></div>
+<div class="row"><div>Token ID</div><div><input id="tokenId" type="number" min="1" placeholder="민팅 받은 tokenId"/></div></div>
+
+<div class="row"><div>증명 생성 방법</div>
+<div>
+    <select id="proveMode">
+        <option value="browser">브라우저에서 생성(snarkjs, wasm/zkey 필요)</option>
+        <option value="upload">파일 업로드(이미 생성한 proof/public)</option>
+    </select>
+</div>
+</div>
+
+<div id="uploadPanel" style="display:none">
+    <div class="row"><div>public.json</div><div><input id="filePublic" type="file" accept=".json"/></div></div>
+    <div class="row"><div>proof.json</div><div><input id="fileProof" type="file" accept=".json"/></div></div>
+</div>
+
+<button class="btn" id="btnVerify">✅ verifyAndEmit</button>
+<div id="verifyLog" class="mono hint"></div>
+</div>
+</div>
+<div class="hint">* PoC: 속성루트/널리파이어 바인딩은 생략. ERC-721+검증 1회 호출로 끝.</div>
+</section>
+</main>
+
+<script>
+    /*** CONFIG ***/
+    const CHAIN_ID = 11155111; // Sepolia
+    const ADDR = {
+        // 👉 배포한 주소로 교체
+        IdentityNFT:    "0x2B8b514A79B8a4E892BF01D6c678a77c336F3AB3",
+        PolicyVerifierA:"0x0507ABC7Ee6B2Cddf25E3Fe3858F5f5cD1a26A9A",
+    };
+    
+    /*** Minimal ABIs ***/
+    let ABI_NFT = null
+    let ABI_PV = null
+    
+    /*** DOM helpers ***/
+    const $ = id => document.getElementById(id);
+    const log = (el, msg) => el.textContent = msg;
+    
+    /*** Ethers objects ***/
+    let provider, signer, nft, pv, account;
+    
+    /*** Wallet connect ***/
+    $("cfgChain").textContent = `${CHAIN_ID} (Sepolia)`;
+    $("cfgNFT").textContent  = ADDR.IdentityNFT;
+    $("cfgPV").textContent   = ADDR.PolicyVerifierA;
+    
+    async function loadAbis() {
+        // Hardhat 빌드 산출물 위치 예시:
+        //  - artifacts/contracts/IdentityNFT.sol/IdentityNFT.json
+        //  - artifacts/contracts/PolicyVerifierA.sol/PolicyVerifierA.json
+        const [nftJson, pvJson] = await Promise.all([
+        fetch("../artifacts/contracts/IdentityNFT.sol/IdentityNFT.json").then(r => {
+            if (!r.ok) throw new Error(`NFT ABI fetch failed: ${r.status}`);
+            return r.json();
+        }),
+        fetch("../artifacts/contracts/PolicyVerifier.sol/PolicyVerifier.json").then(r => {
+            if (!r.ok) throw new Error(`PV ABI fetch failed: ${r.status}`);
+            return r.json();
+        }),
+        ]);
+        ABI_NFT = nftJson.abi;
+        ABI_PV  = pvJson.abi;
+    }
+    
+    $("btnConnect").onclick = async () => {
+        if (!window.ethereum) return alert("MetaMask 필요");
+        provider = new ethers.BrowserProvider(window.ethereum);
+        const want = "0x" + CHAIN_ID.toString(16);
+        const cur = await provider.send("eth_chainId", []);
+        if (cur !== want) {
+            try { await provider.send("wallet_switchEthereumChain", [{ chainId: want }]); }
+            catch (e){ return alert("Sepolia 네트워크를 선택/추가하세요: " + e.message); }
+        }
+        await provider.send("eth_requestAccounts", []);
+        signer = await provider.getSigner();
+        account = await signer.getAddress();
+        
+        await loadAbis();
+        nft = new ethers.Contract(ADDR.IdentityNFT, ABI_NFT, signer);
+        pv  = new ethers.Contract(ADDR.PolicyVerifierA, ABI_PV, signer);
+        $("walletAddr").textContent = account;
+        $("walletStatus").textContent = "연결됨";
+        $("walletStatus").className = "ok";
+        
+        // 오픈 모드 설정 (최초 1회만 실행)
+        // const tx = await nft.setOpenIssuerMode(true);
+        // await tx.wait();
+        
+    };
+    
+    /*** Mint ***/
+    $("btnMint").onclick = async () => {
+        if (!signer) return alert("지갑부터 연결");
+        const to = $("mintTo").value.trim() || account;
+        const days = parseInt($("mintDays").value || "30", 10);
+        let root = $("mintRoot").value.trim();
+        if (!root) root = "0x" + "0".repeat(64);
+        if (!/^0x[0-9a-fA-F]{64}$/.test(root)) return alert("속성루트는 0x + 64 hex");
+        const exp = BigInt(Math.floor(Date.now()/1000) + 86400*days);
+        try {
+            $("btnMint").disabled = true;
+            log($("mintLog"), "민팅 중…");
+            const tx = await nft.mint(to, exp, root);
+            const rc = await tx.wait();
+            const ev = rc.logs?.find(l => l.fragment?.name==="Issued");
+            log($("mintLog"), `완료: tokenId=${ev?.args?.tokenId?.toString() ?? "(tx에서 확인)"} tx=${rc.hash}`);
+        } catch(e) {
+            log($("mintLog"), `에러: ${e.shortMessage||e.message}`);
+        } finally {
+            $("btnMint").disabled = false;
+        }
+    };
+    
+    /*** UI toggle for prove mode ***/
+    $("proveMode").onchange = () => {
+        const mode = $("proveMode").value;
+        $("uploadPanel").style.display = (mode === "upload") ? "" : "none";
+    };
+    $("proveMode").dispatchEvent(new Event("change"));
+    
+    /*** Build public/private inputs from UI ***/
+    function buildInputsFromUI() {
+        // public (정책)
+        const ageFlag = $("ageFlag").value;
+        const reqAge  = $("reqAge").value || "0";
+        const genderFlag = $("genderFlag").value;
+        const reqGender  = $("reqGender").value; // 0/1
+        const nationFlag = $("nationFlag").value;
+        
+        const nations = Array.from(document.querySelectorAll(".nationOpt")).map(s => s.value || "0");
+        // 길이 5 보장
+        while (nations.length < 5) nations.push("0");
+        
+        const publicInputs = {
+            age_check_flag: ageFlag,
+            required_age: reqAge,
+            gender_check_flag: genderFlag,
+            required_gender: reqGender,
+            nationality_check_flag: nationFlag,
+            required_country_codes: nations.slice(0,5)
+        };
+        
+        // private (내 신원)
+        const priv = {
+            prover_age: $("pvAge").value || "0",
+            prover_gender: $("pvGender").value,     // 0/1
+            prover_country_code: $("pvNation").value
+        };
+        
+        return { publicInputs, priv };
+    }
+    
+    /*** File JSON helper ***/
+    async function readJson(fileInput) {
+        const f = fileInput.files?.[0];
+        if (!f) return null;
+        const txt = await f.text();
+        return JSON.parse(txt);
+    }
+    // 공통 파서: snarkjs calldata -> a,b,c,inputs
+    function parseSolidityCalldata(calldata) {
+        const argv = calldata.replace(/["[\]\s]/g, "").split(",").map(x => BigInt(x).toString());
+        const a = [argv[0], argv[1]].map(x => BigInt(x));
+        const b = [
+        [argv[2], argv[3]].map(x => BigInt(x)),
+        [argv[4], argv[5]].map(x => BigInt(x)),
+        ];
+        const c = [argv[6], argv[7]].map(x => BigInt(x));
+        const inputs = argv.slice(8).map(x => BigInt(x).toString());
+        return { a, b, c, inputs };
+    }
+    
+    $("btnVerify").onclick = async () => {
+        if (!signer) return alert("지갑부터 연결");
+        const tokenId = BigInt($("tokenId").value || "0");
+        if (tokenId <= 0n) return alert("Token ID 입력");
+        
+        // on-chain 상태 빠른 체크
+        const user  = await signer.getAddress();
+        const owner = await nft.ownerOf(tokenId);
+        if (owner.toLowerCase() !== user.toLowerCase()) return log($("verifyLog"), "실패: NOT_OWNER");
+        if (await nft.revoked(tokenId))                 return log($("verifyLog"), "실패: REVOKED");
+        if (Number(await nft.expiresAt(tokenId)) <= Math.floor(Date.now()/1000))
+        return log($("verifyLog"), "실패: EXPIRED");
+        
+        // UI → public/private
+        const nations = Array.from(document.querySelectorAll(".nationOpt")).map(s => s.value || "0").slice(0,5);
+        const publicInputsObj = {
+            age_check_flag: $("ageFlag").value,
+            required_age:    $("reqAge").value || "0",
+            gender_check_flag: $("genderFlag").value,
+            required_gender:   $("reqGender").value,
+            nationality_check_flag: $("nationFlag").value,
+            required_country_codes: nations
+        };
+        const priv = {
+            prover_age: $("pvAge").value || "0",
+            prover_gender: $("pvGender").value,
+            prover_country_code: $("pvNation").value
+        };
+        
+        const policyHash = ethers.keccak256(ethers.toUtf8Bytes($("policyStr").value || "poc"));
+        const nullifier  = "0x" + "0".repeat(64); // PoC
+        
+        try {
+            $("btnVerify").disabled = true;
+            log($("verifyLog"), "증명/검증 준비 중…");
+            
+            let a,b,c,publicSignals;
+            
+            if ($("proveMode").value === "upload") {
+                // ✅ 업로드 파일도 반드시 exportSolidityCallData를 통해 파싱
+                const pub = await (async () => {
+                    const f = $("filePublic").files?.[0];
+                    if (!f) throw new Error("public.json 필요");
+                    return JSON.parse(await f.text());
+                })();
+                const prf = await (async () => {
+                    const f = $("fileProof").files?.[0];
+                    if (!f) throw new Error("proof.json 필요");
+                    return JSON.parse(await f.text());
+                })();
+                
+                const proofObj   = prf.proof ?? prf;
+                const pubSignals = pub.publicSignals ?? pub;
+                const calldata   = await snarkjs.groth16.exportSolidityCallData(proofObj, pubSignals);
+                const parsed     = parseSolidityCalldata(calldata);
+                
+                a = parsed.a; b = parsed.b; c = parsed.c;
+                publicSignals = parsed.inputs;
+                
+            } else {
+                // 브라우저에서 증명 생성
+                if (!window.snarkjs) throw new Error("snarkjs 로드 실패");
+                
+                const input = {
+                    // private
+                    prover_age: priv.prover_age,
+                    prover_gender: priv.prover_gender,
+                    prover_country_code: priv.prover_country_code,
+                    // public — 회로 선언 순서와 동일
+                    age_check_flag: publicInputsObj.age_check_flag,
+                    required_age: publicInputsObj.required_age,
+                    gender_check_flag: publicInputsObj.gender_check_flag,
+                    required_gender: publicInputsObj.required_gender,
+                    nationality_check_flag: publicInputsObj.nationality_check_flag,
+                    required_country_codes: publicInputsObj.required_country_codes
+                };
+                
+                const { proof, publicSignals: pubS } = await snarkjs.groth16.fullProve(
+                input,
+                "../zk/access_control.wasm",
+                "../zk/access_control_0001.zkey"
+                );
+                
+                const calldata = await snarkjs.groth16.exportSolidityCallData(proof, pubS);
+                const parsed   = parseSolidityCalldata(calldata);
+                
+                a = parsed.a; b = parsed.b; c = parsed.c;
+                publicSignals = parsed.inputs;
+            }
+            
+            // ✅ publicSignals 길이 검증
+            if (publicSignals.length !== 11) {
+                return log($("verifyLog"), `실패: publicSignals length mismatch (${publicSignals.length} != 9)`);
+            }
+            
+            // 디버그 로깅(주소/셋 확인)
+            console.debug("Verifier:", ADDR.PolicyVerifierA);
+            console.debug("NFT:", ADDR.IdentityNFT);
+            console.debug("a,b,c:", a,b,c);
+            console.debug("publicSignals:", publicSignals);
+            
+            // ✅ 트xn 보내기 전에 staticCall로 이유 확인 (ethers v6)
+            try {
+                await pv.verifyAndEmit.staticCall(tokenId, publicSignals, { a,b,c }, policyHash, nullifier);
+            } catch (sim) {
+                const msg = sim?.shortMessage || sim?.reason || sim?.message || "staticCall reverted";
+                console.warn("staticCall revert:", sim);
+                return log($("verifyLog"), `실패(static): ${msg}`);
+            }
+            
+            log($("verifyLog"), "verifyAndEmit 트랜잭션 전송…");
+            const tx = await pv.verifyAndEmit(tokenId, publicSignals, { a,b,c }, policyHash, nullifier);
+            const rc = await tx.wait();
+            const ev = rc.logs?.find(l => l.fragment?.name === "Verified");
+            log($("verifyLog"), ev ? `성공: tokenId=${ev.args.tokenId.toString()} tx=${rc.hash}` : `완료(tx=${rc.hash})`);
+            
+        } catch (e) {
+            const msg = e?.shortMessage || e?.reason || e?.message || "execution reverted";
+            console.error(e);
+            log($("verifyLog"), `실패: ${msg}`);
+        } finally {
+            $("btnVerify").disabled = false;
+        }
+    };
+    
+</script>
+</body>
+</html>

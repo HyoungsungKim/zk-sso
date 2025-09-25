@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>VC-NFT zk-SSO PoC (Sepolia) — Root 바인딩</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Ethers.js v6 (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.10.0/dist/ethers.umd.min.js"></script>
+
+  <!-- snarkjs (브라우저 번들) -->
+  <script src="../zk/snark.min.js"></script>
+  <!-- ↑ 증명 파일 업로드/생성(옵션)에서만 사용. fullProve 사용시 ../zk/access_control.wasm / .zkey 경로가 유효해야 함 -->
+
+  <style>
+    :root { --bg:#0f1222; --panel:#171a2b; --ink:#e8ebff; --muted:#aeb4d9; --ok:#67e8a5; --bad:#ff7b7b; --acc:#7c9bff; }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui}
+    header{padding:22px 18px;border-bottom:1px solid #232749}
+    h1{margin:0 0 6px 0;font-size:20px}
+    small{color:var(--muted)}
+    main{max-width:980px;margin:20px auto;padding:0 18px 60px}
+    section{background:var(--panel);border:1px solid #21264a;border-radius:14px;margin:16px 0;padding:16px}
+    h2{margin:0 0 12px 0;font-size:17px}
+    h3{margin:6px 0 8px 0;font-size:15px}
+    .row{display:grid;grid-template-columns:180px 1fr;gap:10px;margin:10px 0}
+    input,select,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2f55;background:#10132a;color:var(--ink);font-size:14px}
+    .btn{display:inline-flex;align-items:center;gap:8px;background:#1c2250;color:#fff;border:1px solid #2f3a7a;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:.45;cursor:not-allowed}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+    .hint{color:var(--muted);font-size:13px;margin-top:6px;white-space:pre-line}
+    .hr{height:1px;background:#24284b;margin:12px 0}
+    .ok{color:var(--ok)} .bad{color:var(--bad)}
+    code{background:#10132a;border:1px solid #2a2f55;padding:2px 6px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>VC-NFT zk-SSO PoC <span class="mono">Sepolia</span> — Root 바인딩</h1>
+    <small>ERC-721(SBT 스타일) + ZK 검증 한 번 호출로 로그인/게이트 (PoC: 머클패스 없음)</small>
+  </header>
+
+  <main>
+    <!-- 0) CONFIG & WALLET -->
+    <section>
+      <h2>① 환경 설정 & 지갑</h2>
+      <div class="row"><div>체인</div><div id="cfgChain" class="mono">-</div></div>
+      <div class="row"><div>IdentityNFT</div><div class="mono" id="cfgNFT">-</div></div>
+      <div class="row"><div>PolicyVerifier</div><div class="mono" id="cfgPV">-</div></div>
+      <div class="hr"></div>
+      <div class="row"><div>지갑 상태</div><div id="walletStatus" class="bad">미연결</div></div>
+      <div class="row"><div>계정</div><div class="mono" id="walletAddr">-</div></div>
+      <button class="btn" id="btnConnect">🦊 MetaMask 연결</button>
+      <div class="hint">* Sepolia로 연결 및 수수료용 ETH 필요.</div>
+    </section>
+
+    <!-- 1) POLICY (공개 정책) + PRIVATE (내 신원) + SALTS + ROOT 계산 -->
+    <section>
+      <h2>② 서비스 정책(public) & 내 신원(private) & 루트 계산</h2>
+
+      <div class="grid2">
+        <div>
+          <h3>서비스 정책 (회로 public)</h3>
+          <div class="row"><div>나이 검사</div>
+            <div><select id="ageFlag"><option value="1">활성</option><option value="0">비활성</option></select></div>
+          </div>
+          <div class="row"><div>요구 나이</div><div><input id="reqAge" type="number" value="19" min="0" /></div></div>
+
+          <div class="row"><div>성별 검사</div>
+            <div><select id="genderFlag"><option value="1">활성</option><option value="0">비활성</option></select></div>
+          </div>
+          <div class="row"><div>요구 성별</div>
+            <div><select id="reqGender"><option value="0">남성(0)</option><option value="1">여성(1)</option></select></div>
+          </div>
+
+          <div class="row"><div>국적 검사</div>
+            <div><select id="nationFlag"><option value="1">활성</option><option value="0">비활성</option></select></div>
+          </div>
+          <div class="row"><div>허용 국적 (최대 5)</div>
+            <div>
+              <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">
+                <select class="nationOpt"><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option><option value="0">—</option></select>
+                <select class="nationOpt"><option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option></select>
+                <select class="nationOpt"><option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option></select>
+                <select class="nationOpt"><option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option></select>
+                <select class="nationOpt"><option value="0">—</option><option value="410">KOR</option><option value="840">USA</option><option value="392">JPN</option><option value="826">GBR</option></select>
+              </div>
+              <div class="hint">* 필요 개수만 선택, 나머지는 “—(0)”.</div>
+            </div>
+          </div>
+
+          <div class="row"><div>정책 문자열</div><div><input id="policyStr" value="age>=19&KRorUS"/></div></div>
+        </div>
+
+        <div>
+          <h3>내 신원 (회로 private)</h3>
+          <div class="row"><div>나이</div><div><input id="pvAge" type="number" value="23" min="0"/></div></div>
+          <div class="row"><div>성별</div>
+            <div><select id="pvGender"><option value="0">남성(0)</option><option value="1">여성(1)</option></select></div>
+          </div>
+          <div class="row"><div>국적 코드</div>
+            <div><select id="pvNation"><option value="410">KOR(410)</option><option value="840">USA(840)</option><option value="392">JPN(392)</option><option value="826">GBR(826)</option></select></div>
+          </div>
+
+          <div class="hr"></div>
+          <h3>Salts (PoC, 비공개)</h3>
+          <div class="row"><div>salt_age</div><div><input id="saltAge" type="number" value="1111" min="0"/></div></div>
+          <div class="row"><div>salt_gender</div><div><input id="saltGender" type="number" value="2222" min="0"/></div></div>
+          <div class="row"><div>salt_nation</div><div><input id="saltNation" type="number" value="3333" min="0"/></div></div>
+
+          <div class="row"><div>계산 루트(root)</div><div><input id="calcRoot" class="mono" placeholder="0x..." readonly/></div></div>
+          <div class="row"><div></div><div>
+            <button class="btn" id="btnCalcRoot">🧮 Poseidon으로 루트 계산</button>
+            <span class="hint">leaf=Poseidon(tag,val,salt)\nroot=Poseidon(leafAge,leafGender,leafNation)</span>
+          </div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2) MINT -->
+    <section>
+      <h2>③ ID-NFT 민팅 (오픈 모드)</h2>
+      <div class="row"><div>수혜자 주소</div><div><input id="mintTo" placeholder="0x... (미입력 시 본인)"/></div></div>
+      <div class="row"><div>만료(일)</div><div><input id="mintDays" type="number" value="30" min="1"/></div></div>
+      <div class="row"><div>속성루트</div>
+        <div class="grid2">
+          <input id="mintRoot" class="mono" placeholder="0x00.. (계산 루트 권장)"/>
+          <button class="btn" id="btnUseCalcRoot">⮕ 계산 루트 사용</button>
+        </div>
+      </div>
+      <button class="btn" id="btnMint">🪪 민팅</button>
+      <div id="mintLog" class="mono hint"></div>
+    </section>
+
+    <!-- 3) VERIFY -->
+    <section>
+      <h2>④ 증명 생성 & on-chain 검증</h2>
+      <div class="row"><div>Token ID</div><div><input id="tokenId" type="number" min="1" placeholder="민팅 받은 tokenId"/></div></div>
+      <div class="row"><div>증명 생성 방법</div>
+        <div><select id="proveMode">
+          <option value="browser">브라우저에서 생성(snarkjs)</option>
+          <option value="upload">파일 업로드(이미 생성한 proof/public)</option>
+        </select></div>
+      </div>
+
+      <div id="uploadPanel" style="display:none">
+        <div class="row"><div>public.json</div><div><input id="filePublic" type="file" accept=".json"/></div></div>
+        <div class="row"><div>proof.json</div><div><input id="fileProof" type="file" accept=".json"/></div></div>
+      </div>
+
+      <div class="row"><div>온체인 root</div><div class="mono" id="onchainRoot">-</div></div>
+
+      <button class="btn" id="btnVerify">✅ verifyAndEmit</button>
+      <div id="verifyLog" class="mono hint"></div>
+      <div class="hint">* publicSignals 길이 = 11 (정책 10 + root 1). nullifier는 PoC로 0x00… 사용.</div>
+    </section>
+  </main>
+
+  <script>
+    /*** CONFIG ***/
+    const CHAIN_ID = 11155111; // Sepolia
+    const ADDR = {
+      IdentityNFT:    "0x20d6E2f83aFd8BAD601d02A232c43EAf94401A79",
+      PolicyVerifier: "0x74A572a339C5f3d93c3534064ECc797D684B6A5A",
+    };
+
+    /*** ABIs (빌드 산출물에서 로드) ***/
+    let ABI_NFT = null;
+    let ABI_PV  = null;
+
+    /*** DOM helpers ***/
+    const $ = id => document.getElementById(id);
+    const log = (el, msg) => { el.textContent = msg; };
+
+    /*** Ethers objects ***/
+    let provider, signer, nft, pv, account;
+
+    /*** Poseidon (ESM + 순수 JS) ***/
+    let poseidon = null;  // function(BigInt[]) -> BigInt
+    let F = null;
+    let poseidonLoaded = false;
+
+    async function ensurePoseidon() {
+      if (poseidonLoaded && poseidon && F) return;
+      try {
+        // 순수 JS 구현: wasm/stream 의존성 없음
+        const lib = await import('https://esm.sh/circomlibjs@0.1.7?bundle&target=es2020');
+        const p = await lib.buildPoseidonOpt();
+        F = p.F;
+        poseidon = (arr) => p(arr.map(BigInt));
+        poseidonLoaded = true;
+      } catch (e) {
+        console.error("Poseidon 로드 실패:", e);
+        throw new Error("Poseidon 초기화 실패 (poseidon_opt). 네트워크/CORS를 확인하세요.");
+      }
+    }
+
+    // Poseidon 해시 래퍼
+    async function H(arr) {
+      if (!poseidonLoaded) await ensurePoseidon();
+      // p(arr) → BigInt, F.toObject는 BigInt 유지에 안전
+      return F.toObject(poseidon(arr));
+    }
+
+    const toHex32 = (v) => {
+      const b = BigInt(v);
+      const hex = b.toString(16).padStart(64, '0');
+      return '0x' + hex;
+    };
+
+    // UI 초기값
+    $("cfgChain").textContent = `${CHAIN_ID} (Sepolia)`;
+    $("cfgNFT").textContent   = ADDR.IdentityNFT;
+    $("cfgPV").textContent    = ADDR.PolicyVerifier;
+
+    async function loadAbis() {
+      const [nftJson, pvJson] = await Promise.all([
+        fetch("../artifacts/contracts/IdentityNFT.sol/IdentityNFT.json").then(r => r.json()),
+        fetch("../artifacts/contracts/PolicyVerifier.sol/PolicyVerifier.json").then(r => r.json()),
+      ]);
+      ABI_NFT = nftJson.abi;
+      ABI_PV  = pvJson.abi;
+    }
+
+    /*** Wallet connect ***/
+    $("btnConnect").onclick = async () => {
+      try {
+        if (!window.ethereum) return alert("MetaMask 필요");
+        provider = new ethers.BrowserProvider(window.ethereum);
+        const want = "0x" + CHAIN_ID.toString(16);
+        const cur  = await provider.send("eth_chainId", []);
+        if (cur !== want) {
+          try { await provider.send("wallet_switchEthereumChain", [{ chainId: want }]); }
+          catch (e){ return alert("Sepolia 네트워크 선택/추가 필요: " + (e?.message || e)); }
+        }
+        await provider.send("eth_requestAccounts", []);
+        signer  = await provider.getSigner();
+        account = await signer.getAddress();
+
+        await loadAbis();
+        nft = new ethers.Contract(ADDR.IdentityNFT, ABI_NFT, signer);
+        pv  = new ethers.Contract(ADDR.PolicyVerifier, ABI_PV, signer);
+
+        $("walletAddr").textContent = account;
+        $("walletStatus").textContent = "연결됨";
+        $("walletStatus").className = "ok";
+      } catch (e) {
+        console.error(e);
+        alert("지갑 연결 실패: " + (e?.shortMessage || e?.message || e));
+      }
+    };
+
+    /*** 루트 계산(PoC) ***/
+    $("btnCalcRoot").onclick = async () => {
+      try {
+        await ensurePoseidon();
+
+        const age     = BigInt($("pvAge").value || "0");
+        const gender  = BigInt($("pvGender").value);
+        const nation  = BigInt($("pvNation").value);
+        const sAge    = BigInt($("saltAge").value || "0");
+        const sGender = BigInt($("saltGender").value || "0");
+        const sNation = BigInt($("saltNation").value || "0");
+
+        // LeafHash3(tag, val, salt)
+        const leafAge    = await H([1n, age,    sAge]);
+        const leafGender = await H([2n, gender, sGender]);
+        const leafNation = await H([3n, nation, sNation]);
+        const root       = await H([leafAge, leafGender, leafNation]);
+
+        $("calcRoot").value = toHex32(root);
+      } catch (e) {
+        console.error(e);
+        alert("루트 계산 실패: " + (e?.message || e));
+      }
+    };
+
+    $("btnUseCalcRoot").onclick = () => {
+      const r = $("calcRoot").value.trim();
+      if (!/^0x[0-9a-fA-F]{64}$/.test(r)) return alert("먼저 루트 계산을 해주세요.");
+      $("mintRoot").value = r;
+    };
+
+    /*** Mint ***/
+    $("btnMint").onclick = async () => {
+      if (!signer) return alert("지갑부터 연결");
+      const to = $("mintTo").value.trim() || account;
+      const days = parseInt($("mintDays").value || "30", 10);
+      const root = $("mintRoot").value.trim();
+      if (!/^0x[0-9a-fA-F]{64}$/.test(root)) return alert("속성루트는 0x + 64 hex (계산 루트 사용 권장)");
+      const exp = BigInt(Math.floor(Date.now()/1000) + 86400*days);
+      try {
+        $("btnMint").disabled = true;
+        log($("mintLog"), "민팅 중…");
+        const tx = await nft.mint(to, exp, root);
+        const rc = await tx.wait();
+        const ev = rc.logs?.find(l => l.fragment?.name==="Issued");
+        log($("mintLog"), `완료: tokenId=${ev?.args?.tokenId?.toString() ?? "(tx에서 확인)"} tx=${rc.hash}`);
+      } catch(e) {
+        console.error(e);
+        log($("mintLog"), `에러: ${e.shortMessage||e.message||e}`);
+      } finally {
+        $("btnMint").disabled = false;
+      }
+    };
+
+    /*** UI toggle for prove mode ***/
+    $("proveMode").onchange = () => {
+      const mode = $("proveMode").value;
+      $("uploadPanel").style.display = (mode === "upload") ? "" : "none";
+    };
+    $("proveMode").dispatchEvent(new Event("change"));
+
+    /*** calldata parser: snarkjs export → a,b,c,inputs ***/
+    function parseSolidityCalldata(calldata) {
+      const argv = calldata.replace(/["[\]\s]/g, "").split(",").map(x => BigInt(x).toString());
+      const a = [argv[0], argv[1]].map(x => BigInt(x));
+      const b = [
+        [argv[2], argv[3]].map(x => BigInt(x)),
+        [argv[4], argv[5]].map(x => BigInt(x)),
+      ];
+      const c = [argv[6], argv[7]].map(x => BigInt(x));
+      const inputs = argv.slice(8).map(x => BigInt(x).toString());
+      return { a, b, c, inputs };
+    }
+
+    /*** verify flow ***/
+    $("btnVerify").onclick = async () => {
+      if (!signer) return alert("지갑부터 연결");
+      const tokenId = BigInt($("tokenId").value || "0");
+      if (tokenId <= 0n) return alert("Token ID 입력");
+
+      try {
+        const user  = await signer.getAddress();
+        let owner;
+        try { owner = await nft.ownerOf(tokenId); } catch { return log($("verifyLog"), "실패: 존재하지 않는 tokenId"); }
+        if (owner.toLowerCase() !== user.toLowerCase()) return log($("verifyLog"), "실패: NOT_OWNER");
+        if (await nft.revoked(tokenId))                 return log($("verifyLog"), "실패: REVOKED");
+        if (Number(await nft.expiresAt(tokenId)) <= Math.floor(Date.now()/1000))
+          return log($("verifyLog"), "실패: EXPIRED");
+
+        // 온체인 root 조회
+        const onchainRoot = await nft.attrCommitRoot(tokenId);
+        $("onchainRoot").textContent = onchainRoot;
+
+        // 정책(public)
+        const nations = Array.from(document.querySelectorAll(".nationOpt")).map(s => s.value || "0").slice(0,5);
+        const publicInputsObj = {
+          age_check_flag:           $("ageFlag").value,
+          required_age:             $("reqAge").value || "0",
+          gender_check_flag:        $("genderFlag").value,
+          required_gender:          $("reqGender").value,
+          nationality_check_flag:   $("nationFlag").value,
+          required_country_codes:   nations
+        };
+
+        // private
+        const priv = {
+          prover_age:           $("pvAge").value || "0",
+          prover_gender:        $("pvGender").value,
+          prover_country_code:  $("pvNation").value,
+          salt_age:             $("saltAge").value || "0",
+          salt_gender:          $("saltGender").value || "0",
+          salt_nation:          $("saltNation").value || "0",
+        };
+
+        // 루트 재계산 → 온체인 root와 일치해야 회로가 성립(PoC)
+        await ensurePoseidon();
+        const leafAge    = await H([1n, BigInt(priv.prover_age),          BigInt(priv.salt_age)]);
+        const leafGender = await H([2n, BigInt(priv.prover_gender),       BigInt(priv.salt_gender)]);
+        const leafNation = await H([3n, BigInt(priv.prover_country_code), BigInt(priv.salt_nation)]);
+        const calcRoot   = toHex32(await H([leafAge, leafGender, leafNation]));
+
+        if (onchainRoot.toLowerCase() !== calcRoot.toLowerCase()) {
+          return log($("verifyLog"), `실패: 루트 불일치\non-chain: ${onchainRoot}\ncalc:    ${calcRoot}`);
+        }
+
+        const policyHash = ethers.keccak256(ethers.toUtf8Bytes($("policyStr").value || "poc"));
+        const nullifier  = "0x" + "0".repeat(64); // PoC
+
+        $("btnVerify").disabled = true;
+        log($("verifyLog"), "증명/검증 준비 중…");
+
+        let a,b,c,publicSignals;
+        if ($("proveMode").value === "upload") {
+          const fPub  = $("filePublic").files?.[0];
+          const fProof= $("fileProof").files?.[0];
+          if (!fPub || !fProof) throw new Error("public.json / proof.json 업로드 필요");
+          const pubObj  = JSON.parse(await fPub.text());
+          const prfObj  = JSON.parse(await fProof.text());
+          const proof   = prfObj.proof ?? prfObj;
+          const pubSigs = pubObj.publicSignals ?? pubObj;
+          const calldata = await snarkjs.groth16.exportSolidityCallData(proof, pubSigs);
+          const parsed   = parseSolidityCalldata(calldata);
+          a = parsed.a; b = parsed.b; c = parsed.c; publicSignals = parsed.inputs;
+        } else {
+          if (!window.snarkjs) throw new Error("snarkjs 로드 실패");
+          const input = {
+            // private
+            prover_age:           priv.prover_age,
+            prover_gender:        priv.prover_gender,
+            prover_country_code:  priv.prover_country_code,
+            salt_age:             priv.salt_age,
+            salt_gender:          priv.salt_gender,
+            salt_nation:          priv.salt_nation,
+            // public — 회로 선언 순서(정책10 + root1)
+            age_check_flag:           publicInputsObj.age_check_flag,
+            required_age:             publicInputsObj.required_age,
+            gender_check_flag:        publicInputsObj.gender_check_flag,
+            required_gender:          publicInputsObj.required_gender,
+            nationality_check_flag:   publicInputsObj.nationality_check_flag,
+            required_country_codes:   publicInputsObj.required_country_codes,
+            root:                     onchainRoot
+          };
+
+          // 주의: 파일 경로는 http 서버에서 유효해야 함
+          const { proof, publicSignals: pubS } = await snarkjs.groth16.fullProve(
+            input,
+            "../zk/access_control.wasm",
+            "../zk/access_control_0001.zkey"
+          );
+
+          const calldata = await snarkjs.groth16.exportSolidityCallData(proof, pubS);
+          const parsed   = parseSolidityCalldata(calldata);
+          a = parsed.a; b = parsed.b; c = parsed.c; publicSignals = parsed.inputs;
+        }
+
+        if (publicSignals.length !== 12) {
+          return log($("verifyLog"), `실패: publicSignals length mismatch (${publicSignals.length} != 11)`);
+        }
+
+        // 트xn 전 시뮬
+        try {
+          await pv.verifyAndEmit.staticCall(tokenId, publicSignals, { a,b,c }, policyHash, nullifier);
+        } catch (sim) {
+          const msg = sim?.shortMessage || sim?.reason || sim?.message || "staticCall reverted";
+          console.warn("staticCall revert:", sim);
+          return log($("verifyLog"), `실패(static): ${msg}`);
+        }
+
+        log($("verifyLog"), "verifyAndEmit 트랜잭션 전송…");
+        const tx = await pv.verifyAndEmit(tokenId, publicSignals, { a,b,c }, policyHash, nullifier);
+        const rc = await tx.wait();
+        const ev = rc.logs?.find(l => l.fragment?.name === "Verified");
+        log($("verifyLog"), ev ? `성공: tokenId=${ev.args.tokenId.toString()} tx=${rc.hash}` : `완료(tx=${rc.hash})`);
+      } catch (e) {
+        const msg = e?.shortMessage || e?.reason || e?.message || "execution reverted";
+        console.error(e);
+        log($("verifyLog"), `실패: ${msg}`);
+      } finally {
+        $("btnVerify").disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

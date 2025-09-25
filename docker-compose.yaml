@@ -1,0 +1,17 @@
+services:
+  zk-sso-v1:
+    build: ./zk-sso-v1
+    volumes:
+      - ./zk-sso-v1:/app
+    working_dir: /app
+    tty: true       
+    stdin_open: true
+
+  zk-sso-v2:
+    build: ./zk-sso-v2
+    volumes:
+      - ./zk-sso-v2:/app
+    working_dir: /app
+    tty: true       
+    stdin_open: true
+

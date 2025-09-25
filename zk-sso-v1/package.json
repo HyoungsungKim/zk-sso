@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
+    "circom_tester": "^0.0.24",
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "fixed-merkle-tree": "^0.7.3",
+    "http-server": "^14.1.1",
+    "mocha": "^11.7.1",
+    "snarkjs": "^0.7.5"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "chai": "^4.5.0",
+    "chai-as-promised": "^7.1.2",
+    "dotenv": "^17.2.1",
+    "ethers": "^6.15.0",
+    "hardhat": "^2.26.3"
+  }
+}

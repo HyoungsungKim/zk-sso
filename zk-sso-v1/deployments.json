@@ -1,0 +1,8 @@
+{
+  "network": "sepolia",
+  "verifier": "0xa51C3044160F2C84F958efA3Bfd6b2FF8d3b5921",
+  "identityNFT": "0x2B8b514A79B8a4E892BF01D6c678a77c336F3AB3",
+  "policyVerifier": "0x0507ABC7Ee6B2Cddf25E3Fe3858F5f5cD1a26A9A",
+  "deployer": "0x6bB4353b050CF2D36461ae2dfA9e4a78C098F736",
+  "mode": "open"
+}
